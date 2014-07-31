@@ -101,6 +101,14 @@ func (p *Parser) Tokenize(){
 	}
 }
 
+func (p *Parser) isIgnoreToken(s string){
+	if s == "script" || s == "style" {
+		p.ignore_next_token = true
+	} else {
+		p.ignore_next_token = false
+	}
+}
+
 func (p *Parser) getStartToken() {
 
 	start_token := Token{pos: p.cpos, token_type: START_NODE}
@@ -114,6 +122,7 @@ func (p *Parser) getStartToken() {
 
 		if (*p.source)[p.cpos:p.cpos+1] == " " || (*p.source)[p.cpos:p.cpos+1] == ">"{
 			start_token.value = (*p.source)[started_pos: p.cpos]
+			p.isIgnoreToken(start_token.value)
 			p.tokens = append(p.tokens, start_token)
 			return
 		}
@@ -136,6 +145,7 @@ func (p *Parser) getEndToken() {
 
 		if (*p.source)[p.cpos:p.cpos+1] == ">" {
 			token.value = (*p.source)[started_pos: p.cpos]
+			p.isIgnoreToken(token.value)
 			p.tokens = append(p.tokens, token)
 			p.cpos += 1
 			return
@@ -149,6 +159,8 @@ func (p *Parser) getEndToken() {
 func (p *Parser) getAttributeTokens() {
 	token := Token{pos: p.cpos, token_type: ATTRIBUTE_NODE}
 	start_pos := p.cpos
+
+	in_string := false
 
 	add_token := func () {
 		if token.key != "" {
@@ -174,8 +186,16 @@ func (p *Parser) getAttributeTokens() {
 			add_token()
 			start_pos = p.cpos
 		case "=":
-			token.key = strings.TrimSpace((*p.source)[start_pos:p.cpos])
-			start_pos = p.cpos + 1
+			if in_string {
+				token.key = strings.TrimSpace((*p.source)[start_pos:p.cpos])
+				start_pos = p.cpos + 1
+			}
+		case "'", "\"":
+			if in_string {
+				in_string = false
+			} else {
+				in_string = true
+			}
 		default:
 		} 
 
@@ -197,10 +217,12 @@ func (p *Parser) getValueToken() {
 
 		switch (*p.source)[p.cpos:p.cpos+1] {
 		case "<":
-			token.value = strings.TrimSpace((*p.source)[started_pos: p.cpos])
+			if !p.ignore_next_token {
+				token.value = strings.TrimSpace((*p.source)[started_pos: p.cpos])
 
-			if token.value != "" {
-				p.tokens = append(p.tokens, token)
+				if token.value != "" {
+					p.tokens = append(p.tokens, token)
+				}
 			}
 			return
 		case ">":
@@ -230,7 +252,7 @@ func (p *Parser) PrintTokens() {
 
 func main(){
 	// source := `<xml attr="sucks">Hello<span> Jonathan </span></xml>`
-	filename := "test2.html"
+	filename := "test3.html"
 	source_bytes, err := ioutil.ReadFile(filename)
 
 	if err != nil {

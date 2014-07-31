@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	START = "<"
-	END = ">"
+	START       = "<"
+	END         = ">"
 	FINISH_NODE = "</"
 )
 
@@ -21,9 +21,9 @@ const (
 )
 
 type Token struct {
-	pos int
-	key string
-	value string
+	pos        int
+	key        string
+	value      string
 	token_type int
 }
 
@@ -31,7 +31,7 @@ func (t Token) String() string {
 	var token_type string
 	m := 0
 
-	switch t.token_type{
+	switch t.token_type {
 	case 0:
 		token_type = "StartNode"
 	case 1:
@@ -45,48 +45,47 @@ func (t Token) String() string {
 		token_type = "Error"
 	}
 
-	switch m{
+	switch m {
 	case 0:
 		return fmt.Sprintf("%s - %s [%d]", token_type, t.value, t.pos)
 	case 1:
-		return fmt.Sprintf("%s - %s=%s [%d]", token_type, t.key, 
-												t.value, t.pos)
+		return fmt.Sprintf("%s - %s=%s [%d]", token_type, t.key,
+			t.value, t.pos)
 	}
 
 	return "TokenErrored"
 }
 
 type Parser struct {
-	source *string
+	source        *string
 	source_length int
-	cpos int // Current position.
+	cpos          int // Current position.
 
 	tokens []Token
 
 	ignore_next_token bool
-
 }
 
 func GetParser(source *string) *Parser {
 	source_length := len(*source)
-	return &Parser{source: source, 
-				source_length: source_length,
-				tokens: make([]Token, 0), 
-				cpos: 0}
+	return &Parser{source: source,
+		source_length: source_length,
+		tokens:        make([]Token, 0),
+		cpos:          0}
 }
 
-func (p *Parser) Tokenize(){
+func (p *Parser) Tokenize() {
 
 	for {
 		if p.cpos >= p.source_length {
 			return
 		}
 
-		if (p.cpos + 2 <= p.source_length) && ((*p.source)[p.cpos:p.cpos+2] == FINISH_NODE) {
+		if (p.cpos+2 <= p.source_length) && ((*p.source)[p.cpos:p.cpos+2] == FINISH_NODE) {
 			p.cpos += 2
 			p.getEndToken()
 
-		} else if ((*p.source)[p.cpos:p.cpos+1] == START) {
+		} else if (*p.source)[p.cpos:p.cpos+1] == START {
 			p.cpos += 1
 			p.getStartToken()
 			p.getAttributeTokens()
@@ -96,12 +95,12 @@ func (p *Parser) Tokenize(){
 			p.getValueToken()
 		}
 
-		// p.cpos += 1 
+		// p.cpos += 1
 
 	}
 }
 
-func (p *Parser) isIgnoreToken(s string){
+func (p *Parser) isIgnoreToken(s string) {
 	if s == "script" || s == "style" {
 		p.ignore_next_token = true
 	} else {
@@ -114,14 +113,14 @@ func (p *Parser) getStartToken() {
 	start_token := Token{pos: p.cpos, token_type: START_NODE}
 	started_pos := p.cpos
 	for {
-		if p.cpos >= p.source_length{
-			p.tokens = append(p.tokens, Token{token_type: ERROR, pos:p.cpos, 
-												value: "SyntaxError"})
+		if p.cpos >= p.source_length {
+			p.tokens = append(p.tokens, Token{token_type: ERROR, pos: p.cpos,
+				value: "SyntaxError"})
 			return
 		}
 
-		if (*p.source)[p.cpos:p.cpos+1] == " " || (*p.source)[p.cpos:p.cpos+1] == ">"{
-			start_token.value = (*p.source)[started_pos: p.cpos]
+		if (*p.source)[p.cpos:p.cpos+1] == " " || (*p.source)[p.cpos:p.cpos+1] == ">" {
+			start_token.value = (*p.source)[started_pos:p.cpos]
 			p.isIgnoreToken(start_token.value)
 			p.tokens = append(p.tokens, start_token)
 			return
@@ -137,14 +136,14 @@ func (p *Parser) getEndToken() {
 	token := Token{pos: p.cpos, token_type: END_NODE}
 	started_pos := p.cpos
 	for {
-		if p.cpos >= p.source_length{
-			p.tokens = append(p.tokens, Token{token_type: ERROR, pos:p.cpos, 
-												value: "SyntaxError"})
+		if p.cpos >= p.source_length {
+			p.tokens = append(p.tokens, Token{token_type: ERROR, pos: p.cpos,
+				value: "SyntaxError"})
 			return
 		}
 
 		if (*p.source)[p.cpos:p.cpos+1] == ">" {
-			token.value = (*p.source)[started_pos: p.cpos]
+			token.value = (*p.source)[started_pos:p.cpos]
 			p.isIgnoreToken(token.value)
 			p.tokens = append(p.tokens, token)
 			p.cpos += 1
@@ -162,9 +161,20 @@ func (p *Parser) getAttributeTokens() {
 
 	in_string := false
 
-	add_token := func () {
+	add_token := func() {
+
+		value := strings.TrimSpace((*p.source)[start_pos:p.cpos])
+		_add_token := false
 		if token.key != "" {
-			token.value = strings.TrimSpace((*p.source)[start_pos:p.cpos])
+			token.value = value
+			_add_token = true
+		} else if value != "" {
+
+			token.key = strings.TrimSpace((*p.source)[start_pos:p.cpos])
+			_add_token = true
+		}
+
+		if _add_token {
 			p.tokens = append(p.tokens, token)
 
 			token = Token{pos: p.cpos, token_type: ATTRIBUTE_NODE}
@@ -172,13 +182,13 @@ func (p *Parser) getAttributeTokens() {
 	}
 
 	for {
-		if p.cpos >= p.source_length{
-			p.tokens = append(p.tokens, Token{token_type: ERROR, pos:p.cpos, 
-												value: "SyntaxError"})
+		if p.cpos >= p.source_length {
+			p.tokens = append(p.tokens, Token{token_type: ERROR, pos: p.cpos,
+				value: "SyntaxError"})
 			return
 		}
 
-		switch (*p.source)[p.cpos:p.cpos+1] {
+		switch (*p.source)[p.cpos : p.cpos+1] {
 		case ">":
 			add_token()
 			return
@@ -186,7 +196,7 @@ func (p *Parser) getAttributeTokens() {
 			add_token()
 			start_pos = p.cpos
 		case "=":
-			if in_string {
+			if !in_string {
 				token.key = strings.TrimSpace((*p.source)[start_pos:p.cpos])
 				start_pos = p.cpos + 1
 			}
@@ -197,8 +207,7 @@ func (p *Parser) getAttributeTokens() {
 				in_string = true
 			}
 		default:
-		} 
-
+		}
 
 		p.cpos += 1
 	}
@@ -209,16 +218,16 @@ func (p *Parser) getValueToken() {
 	token := Token{pos: p.cpos, token_type: VALUE_NODE}
 	started_pos := p.cpos
 	for {
-		if p.cpos >= p.source_length{
-			p.tokens = append(p.tokens, Token{token_type: ERROR, pos:p.cpos, 
-												value: "SyntaxError"})
+		if p.cpos >= p.source_length {
+			p.tokens = append(p.tokens, Token{token_type: ERROR, pos: p.cpos,
+				value: "SyntaxError"})
 			return
 		}
 
-		switch (*p.source)[p.cpos:p.cpos+1] {
+		switch (*p.source)[p.cpos : p.cpos+1] {
 		case "<":
 			if !p.ignore_next_token {
-				token.value = strings.TrimSpace((*p.source)[started_pos: p.cpos])
+				token.value = strings.TrimSpace((*p.source)[started_pos:p.cpos])
 
 				if token.value != "" {
 					p.tokens = append(p.tokens, token)
@@ -248,11 +257,9 @@ func (p *Parser) PrintTokens() {
 	}
 }
 
-
-
-func main(){
+func main() {
 	// source := `<xml attr="sucks">Hello<span> Jonathan </span></xml>`
-	filename := "test3.html"
+	filename := "test2.html"
 	source_bytes, err := ioutil.ReadFile(filename)
 
 	if err != nil {
@@ -264,5 +271,5 @@ func main(){
 	parser := GetParser(&source)
 	parser.Tokenize()
 	parser.PrintTokens()
-	
+
 }

@@ -7,9 +7,11 @@ import (
 )
 
 const (
-	START       = "<"
-	END         = ">"
-	FINISH_NODE = "</"
+	START         = "<"
+	END           = ">"
+	FINISH_NODE   = "</"
+	COMMENT_START = "<!--"
+	COMMENT_END   = "-->"
 )
 
 const (
@@ -17,6 +19,7 @@ const (
 	END_NODE
 	ATTRIBUTE_NODE
 	VALUE_NODE
+	COMMENT_NODE
 	ERROR
 )
 
@@ -35,13 +38,15 @@ func (t Token) String() string {
 	case 0:
 		token_type = "StartNode"
 	case 1:
-		token_type = "End Node"
+		token_type = "EndNode"
 	case 2:
 		token_type = "Attribute"
 		m = 1
 	case 3:
 		token_type = "Value"
 	case 4:
+		token_type = "CommentNode"
+	case 5:
 		token_type = "Error"
 	}
 
@@ -95,8 +100,6 @@ func (p *Parser) Tokenize() {
 			p.getValueToken()
 		}
 
-		// p.cpos += 1
-
 	}
 }
 
@@ -112,6 +115,7 @@ func (p *Parser) getStartToken() {
 
 	start_token := Token{pos: p.cpos, token_type: START_NODE}
 	started_pos := p.cpos
+	var value string
 	for {
 		if p.cpos >= p.source_length {
 			p.tokens = append(p.tokens, Token{token_type: ERROR, pos: p.cpos,
@@ -119,7 +123,8 @@ func (p *Parser) getStartToken() {
 			return
 		}
 
-		if (*p.source)[p.cpos:p.cpos+1] == " " || (*p.source)[p.cpos:p.cpos+1] == ">" {
+		value = (*p.source)[p.cpos : p.cpos+1]
+		if value == " " || value == ">" {
 			start_token.value = (*p.source)[started_pos:p.cpos]
 			p.isIgnoreToken(start_token.value)
 			p.tokens = append(p.tokens, start_token)
@@ -168,15 +173,15 @@ func (p *Parser) getAttributeTokens() {
 		if token.key != "" {
 			token.value = value
 			_add_token = true
-		} else if value != "" {
 
+		} else if value != "" {
 			token.key = strings.TrimSpace((*p.source)[start_pos:p.cpos])
 			_add_token = true
+
 		}
 
 		if _add_token {
 			p.tokens = append(p.tokens, token)
-
 			token = Token{pos: p.cpos, token_type: ATTRIBUTE_NODE}
 		}
 	}
@@ -226,14 +231,17 @@ func (p *Parser) getValueToken() {
 
 		switch (*p.source)[p.cpos : p.cpos+1] {
 		case "<":
-			if !p.ignore_next_token {
-				token.value = strings.TrimSpace((*p.source)[started_pos:p.cpos])
 
-				if token.value != "" {
-					p.tokens = append(p.tokens, token)
+			if !p.ignore_next_token {
+				if !p.getCommentToken(started_pos) {
+					token.value = strings.TrimSpace((*p.source)[started_pos:p.cpos])
+
+					if token.value != "" {
+						p.tokens = append(p.tokens, token)
+					}
 				}
+				return
 			}
-			return
 		case ">":
 			started_pos = p.cpos + 1
 		}
@@ -241,6 +249,53 @@ func (p *Parser) getValueToken() {
 		p.cpos += 1
 
 	}
+}
+
+func (p *Parser) getCommentToken(backtrack_pos int) bool {
+	if p.cpos+4 > p.source_length {
+		return false
+	}
+
+	comment_start_count := len(COMMENT_START)
+	comment_end_count := len(COMMENT_END)
+
+	prev_started_pos := p.cpos
+
+	if (*p.source)[p.cpos:p.cpos+comment_start_count] == COMMENT_START {
+		p.cpos += comment_start_count
+		started_pos := p.cpos
+		for {
+			if p.cpos+comment_end_count > p.source_length {
+				p.cpos = started_pos
+				return false
+			}
+
+			if (*p.source)[p.cpos:p.cpos+comment_end_count] == COMMENT_END {
+				value := strings.TrimSpace((*p.source)[backtrack_pos:prev_started_pos])
+				if value != "" {
+					value_token := Token{token_type: VALUE_NODE, pos: backtrack_pos,
+						value: value}
+					comment_token := Token{token_type: COMMENT_NODE,
+						pos: started_pos, value: strings.TrimSpace((*p.source)[started_pos:p.cpos])}
+					p.tokens = append(p.tokens, value_token, comment_token)
+				} else {
+					comment_token := Token{token_type: COMMENT_NODE,
+						pos:   started_pos,
+						value: strings.TrimSpace((*p.source)[started_pos:p.cpos])}
+					p.tokens = append(p.tokens, comment_token)
+				}
+
+				p.cpos += 3
+				return true
+
+			}
+
+			p.cpos += 1
+
+		}
+	}
+
+	return false
 }
 
 func (p *Parser) cleanTokens() {
@@ -259,7 +314,7 @@ func (p *Parser) PrintTokens() {
 
 func main() {
 	// source := `<xml attr="sucks">Hello<span> Jonathan </span></xml>`
-	filename := "test2.html"
+	filename := "test3.html"
 	source_bytes, err := ioutil.ReadFile(filename)
 
 	if err != nil {

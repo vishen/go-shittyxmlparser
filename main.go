@@ -23,8 +23,13 @@ const (
 	ERROR
 )
 
+var (
+	IGNORE_TOKENS = [2]string{"script", "style"}
+)
+
 type Token struct {
-	pos        int
+	start_pos  int
+	end_pos    int
 	key        string
 	value      string
 	token_type int
@@ -48,14 +53,17 @@ func (t Token) String() string {
 		token_type = "CommentNode"
 	case 5:
 		token_type = "Error"
+		m = 2
 	}
 
 	switch m {
 	case 0:
-		return fmt.Sprintf("%s - %s [%d]", token_type, t.value, t.pos)
+		return fmt.Sprintf("%s - %s [%d]", token_type, t.value, t.start_pos)
 	case 1:
 		return fmt.Sprintf("%s - %s=%s [%d]", token_type, t.key,
-			t.value, t.pos)
+			t.value, t.start_pos)
+	case 2:
+		return fmt.Sprintf("%s - %s [%d - %d]", token_type, t.value, t.start_pos, t.end_pos)
 	}
 
 	return "TokenErrored"
@@ -65,6 +73,7 @@ type Parser struct {
 	source        *string
 	source_length int
 	cpos          int // Current position.
+	ppos          int // Previous position.
 
 	tokens []Token
 
@@ -104,28 +113,43 @@ func (p *Parser) Tokenize() {
 }
 
 func (p *Parser) isIgnoreToken(s string) {
-	if s == "script" || s == "style" {
-		p.ignore_next_token = true
-	} else {
-		p.ignore_next_token = false
+	found := false
+	for _, t := range IGNORE_TOKENS {
+		if s == t {
+			found = true
+		}
 	}
+
+	p.ignore_next_token = found
+}
+
+func (p *Parser) updatePos() {
+	p.ppos = p.cpos
+}
+
+func (p *Parser) emitError(error_type string) {
+	p.tokens = append(p.tokens, Token{token_type: ERROR, start_pos: p.ppos,
+		end_pos: p.cpos, value: error_type + (*p.source)[p.ppos:p.cpos]})
 }
 
 func (p *Parser) getStartToken() {
 
-	start_token := Token{pos: p.cpos, token_type: START_NODE}
-	started_pos := p.cpos
+	start_token := Token{start_pos: p.cpos, token_type: START_NODE}
+	// started_pos := p.cpos
+	p.updatePos()
+
 	var value string
 	for {
 		if p.cpos >= p.source_length {
-			p.tokens = append(p.tokens, Token{token_type: ERROR, pos: p.cpos,
-				value: "SyntaxError"})
+			// p.tokens = append(p.tokens, Token{token_type: ERROR, pos: p.cpos,
+			// 	value: "SyntaxError"})
+			p.emitError("SyntaxError - StartToken")
 			return
 		}
 
 		value = (*p.source)[p.cpos : p.cpos+1]
 		if value == " " || value == ">" {
-			start_token.value = (*p.source)[started_pos:p.cpos]
+			start_token.value = (*p.source)[p.ppos:p.cpos]
 			p.isIgnoreToken(start_token.value)
 			p.tokens = append(p.tokens, start_token)
 			return
@@ -138,17 +162,19 @@ func (p *Parser) getStartToken() {
 
 func (p *Parser) getEndToken() {
 
-	token := Token{pos: p.cpos, token_type: END_NODE}
-	started_pos := p.cpos
+	token := Token{start_pos: p.cpos, token_type: END_NODE}
+	// started_pos := p.cpos
+	p.updatePos()
 	for {
 		if p.cpos >= p.source_length {
-			p.tokens = append(p.tokens, Token{token_type: ERROR, pos: p.cpos,
-				value: "SyntaxError"})
+			// p.tokens = append(p.tokens, Token{token_type: ERROR, pos: p.cpos,
+			// 	value: "SyntaxError"})
+			p.emitError("SyntaxError - EndToken")
 			return
 		}
 
 		if (*p.source)[p.cpos:p.cpos+1] == ">" {
-			token.value = (*p.source)[started_pos:p.cpos]
+			token.value = (*p.source)[p.ppos:p.cpos]
 			p.isIgnoreToken(token.value)
 			p.tokens = append(p.tokens, token)
 			p.cpos += 1
@@ -161,35 +187,38 @@ func (p *Parser) getEndToken() {
 }
 
 func (p *Parser) getAttributeTokens() {
-	token := Token{pos: p.cpos, token_type: ATTRIBUTE_NODE}
-	start_pos := p.cpos
+	token := Token{start_pos: p.cpos, token_type: ATTRIBUTE_NODE}
+	// start_pos := 0
+
+	p.updatePos()
 
 	in_string := false
 
 	add_token := func() {
 
-		value := strings.TrimSpace((*p.source)[start_pos:p.cpos])
+		value := strings.TrimSpace((*p.source)[p.ppos:p.cpos])
 		_add_token := false
 		if token.key != "" {
 			token.value = value
 			_add_token = true
 
 		} else if value != "" {
-			token.key = strings.TrimSpace((*p.source)[start_pos:p.cpos])
+			token.key = strings.TrimSpace((*p.source)[p.ppos:p.cpos])
 			_add_token = true
 
 		}
 
 		if _add_token {
 			p.tokens = append(p.tokens, token)
-			token = Token{pos: p.cpos, token_type: ATTRIBUTE_NODE}
+			token = Token{start_pos: p.cpos, token_type: ATTRIBUTE_NODE}
 		}
 	}
 
 	for {
 		if p.cpos >= p.source_length {
-			p.tokens = append(p.tokens, Token{token_type: ERROR, pos: p.cpos,
-				value: "SyntaxError"})
+			// p.tokens = append(p.tokens, Token{token_type: ERROR, pos: p.cpos,
+			// 	value: "SyntaxError"})
+			p.emitError("SyntaxError - AttributeNode")
 			return
 		}
 
@@ -199,11 +228,11 @@ func (p *Parser) getAttributeTokens() {
 			return
 		case " ":
 			add_token()
-			start_pos = p.cpos
+			p.ppos = p.cpos
 		case "=":
 			if !in_string {
-				token.key = strings.TrimSpace((*p.source)[start_pos:p.cpos])
-				start_pos = p.cpos + 1
+				token.key = strings.TrimSpace((*p.source)[p.ppos:p.cpos])
+				p.ppos = p.cpos + 1
 			}
 		case "'", "\"":
 			if in_string {
@@ -220,12 +249,14 @@ func (p *Parser) getAttributeTokens() {
 
 func (p *Parser) getValueToken() {
 
-	token := Token{pos: p.cpos, token_type: VALUE_NODE}
-	started_pos := p.cpos
+	token := Token{start_pos: p.cpos, token_type: VALUE_NODE}
+	// started_pos := p.cpos
+	p.updatePos()
 	for {
 		if p.cpos >= p.source_length {
-			p.tokens = append(p.tokens, Token{token_type: ERROR, pos: p.cpos,
-				value: "SyntaxError"})
+			// p.tokens = append(p.tokens, Token{token_type: ERROR, pos: p.cpos,
+			// 	value: "SyntaxError"})
+			p.emitError("SyntaxError - ValueToken")
 			return
 		}
 
@@ -233,17 +264,18 @@ func (p *Parser) getValueToken() {
 		case "<":
 
 			if !p.ignore_next_token {
-				if !p.getCommentToken(started_pos) {
-					token.value = strings.TrimSpace((*p.source)[started_pos:p.cpos])
+				if !p.getCommentToken(p.ppos) {
+					token.value = strings.TrimSpace((*p.source)[p.ppos:p.cpos])
 
 					if token.value != "" {
 						p.tokens = append(p.tokens, token)
 					}
 				}
-				return
 			}
+
+			return
 		case ">":
-			started_pos = p.cpos + 1
+			p.ppos = p.cpos + 1
 		}
 
 		p.cpos += 1
@@ -263,25 +295,26 @@ func (p *Parser) getCommentToken(backtrack_pos int) bool {
 
 	if (*p.source)[p.cpos:p.cpos+comment_start_count] == COMMENT_START {
 		p.cpos += comment_start_count
-		started_pos := p.cpos
+		// started_pos := p.cpos
+		p.updatePos()
 		for {
 			if p.cpos+comment_end_count > p.source_length {
-				p.cpos = started_pos
+				p.cpos = p.ppos
 				return false
 			}
 
 			if (*p.source)[p.cpos:p.cpos+comment_end_count] == COMMENT_END {
 				value := strings.TrimSpace((*p.source)[backtrack_pos:prev_started_pos])
 				if value != "" {
-					value_token := Token{token_type: VALUE_NODE, pos: backtrack_pos,
+					value_token := Token{token_type: VALUE_NODE, start_pos: backtrack_pos,
 						value: value}
 					comment_token := Token{token_type: COMMENT_NODE,
-						pos: started_pos, value: strings.TrimSpace((*p.source)[started_pos:p.cpos])}
+						start_pos: p.ppos, value: strings.TrimSpace((*p.source)[p.ppos:p.cpos])}
 					p.tokens = append(p.tokens, value_token, comment_token)
 				} else {
 					comment_token := Token{token_type: COMMENT_NODE,
-						pos:   started_pos,
-						value: strings.TrimSpace((*p.source)[started_pos:p.cpos])}
+						start_pos: p.ppos,
+						value:     strings.TrimSpace((*p.source)[p.ppos:p.cpos])}
 					p.tokens = append(p.tokens, comment_token)
 				}
 
